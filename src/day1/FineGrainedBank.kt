@@ -8,40 +8,55 @@ import java.util.concurrent.locks.*
 class FineGrainedBank(accountsNumber: Int) : Bank {
     private val accounts: Array<Account> = Array(accountsNumber) { Account() }
 
+    private fun <T> withLocked(account: Account, action: () -> T): T {
+        account.lock.lock()
+        try {
+            return action()
+        } finally {
+            account.lock.unlock()
+        }
+    }
+
     override fun getAmount(id: Int): Long {
-        // TODO: Make this operation thread-safe via fine-grained locking.
         val account = accounts[id]
-        return account.amount
+        return withLocked(account) { account.amount }
     }
 
     override fun deposit(id: Int, amount: Long): Long {
-        // TODO: Make this operation thread-safe via fine-grained locking.
         require(amount > 0) { "Invalid amount: $amount" }
         val account = accounts[id]
-        check(!(amount > MAX_AMOUNT || account.amount + amount > MAX_AMOUNT)) { "Overflow" }
-        account.amount += amount
-        return account.amount
+        return withLocked(account) {
+            check(!(amount > MAX_AMOUNT || account.amount + amount > MAX_AMOUNT)) { "Overflow" }
+            account.amount += amount
+            account.amount
+        }
     }
 
     override fun withdraw(id: Int, amount: Long): Long {
-        // TODO: Make this operation thread-safe via fine-grained locking.
         require(amount > 0) { "Invalid amount: $amount" }
         val account = accounts[id]
-        check(account.amount - amount >= 0) { "Underflow" }
-        account.amount -= amount
-        return account.amount
+        return withLocked(account) {
+            check(account.amount - amount >= 0) { "Underflow" }
+            account.amount -= amount
+            account.amount
+        }
     }
 
     override fun transfer(fromId: Int, toId: Int, amount: Long) {
-        // TODO: Make this operation thread-safe via fine-grained locking.
         require(amount > 0) { "Invalid amount: $amount" }
         require(fromId != toId) { "fromId == toId" }
         val from = accounts[fromId]
         val to = accounts[toId]
-        check(amount <= from.amount) { "Underflow" }
-        check(!(amount > MAX_AMOUNT || to.amount + amount > MAX_AMOUNT)) { "Overflow" }
-        from.amount -= amount
-        to.amount += amount
+
+        // Strict locking order here:
+        val (first, second) = if (fromId < toId) Pair(from, to) else Pair(to, from)
+
+        return withLocked(first) { withLocked(second) {
+            check(amount <= from.amount) { "Underflow" }
+            check(!(amount > MAX_AMOUNT || to.amount + amount > MAX_AMOUNT)) { "Overflow" }
+            from.amount -= amount
+            to.amount += amount
+        }}
     }
 
     /**
@@ -53,9 +68,6 @@ class FineGrainedBank(accountsNumber: Int) : Bank {
          */
         var amount: Long = 0
 
-        /**
-         * TODO: use this mutex to protect the account data.
-         */
         val lock = ReentrantLock()
     }
 }
