@@ -15,24 +15,24 @@ open class TreiberStackWithElimination<E> : Stack<E> {
 
     protected open fun tryPushElimination(element: E): Boolean {
         val idx = randomCellIndex()
+
         if (!eliminationArray.compareAndSet(idx, CELL_STATE_EMPTY, element)) {
             return false
         }
 
-        repeat(ELIMINATION_WAIT_CYCLES) {
-            // TODO: do we need cas?
-            if (eliminationArray.compareAndSet(idx, CELL_STATE_RETRIEVED, CELL_STATE_EMPTY)) {
-                return true
-            }
-        }
-
-        // TODO: can we simplify this?
+        var waitCyclesLeft = ELIMINATION_WAIT_CYCLES
         while (true) {
-            if (eliminationArray.compareAndSet(idx, element, CELL_STATE_EMPTY)) {
-                return false
-            }
             if (eliminationArray.compareAndSet(idx, CELL_STATE_RETRIEVED, CELL_STATE_EMPTY)) {
+                // concurrent pop took the element
                 return true
+            }
+            if (waitCyclesLeft == 0) {
+                // we have no more time to wait, try to stop
+                if (eliminationArray.compareAndSet(idx, element, CELL_STATE_EMPTY)) {
+                    return false
+                }
+            } else {
+                waitCyclesLeft--
             }
         }
     }
