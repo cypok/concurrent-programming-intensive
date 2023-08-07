@@ -10,44 +10,43 @@ class CoarseGrainedBank(accountsNumber: Int) : Bank {
 
     private val globalLock = ReentrantLock()
 
-    override fun getAmount(id: Int): Long {
+    private fun <T> withLock(action: () -> T): T {
         globalLock.lock()
         try {
-            return accounts[id].amount
+            return action()
         } finally {
             globalLock.unlock()
+        }
+    }
+
+    override fun getAmount(id: Int): Long {
+        return withLock {
+            accounts[id].amount
         }
     }
 
     override fun deposit(id: Int, amount: Long): Long {
-        globalLock.lock()
-        try {
+        return withLock {
             require(amount > 0) { "Invalid amount: $amount" }
             val account = accounts[id]
             check(!(amount > MAX_AMOUNT || account.amount + amount > MAX_AMOUNT)) { "Overflow" }
             account.amount += amount
-            return account.amount
-        } finally {
-            globalLock.unlock()
+            account.amount
         }
     }
 
     override fun withdraw(id: Int, amount: Long): Long {
-        globalLock.lock()
-        try {
+        return withLock {
             require(amount > 0) { "Invalid amount: $amount" }
             val account = accounts[id]
             check(account.amount - amount >= 0) { "Underflow" }
             account.amount -= amount
-            return account.amount
-        } finally {
-            globalLock.unlock()
+            account.amount
         }
     }
 
     override fun transfer(fromId: Int, toId: Int, amount: Long) {
-        globalLock.lock()
-        try {
+        withLock {
             require(amount > 0) { "Invalid amount: $amount" }
             require(fromId != toId) { "fromIndex == toIndex" }
             val from = accounts[fromId]
@@ -56,8 +55,6 @@ class CoarseGrainedBank(accountsNumber: Int) : Bank {
             check(!(amount > MAX_AMOUNT || to.amount + amount > MAX_AMOUNT)) { "Overflow" }
             from.amount -= amount
             to.amount += amount
-        } finally {
-            globalLock.unlock()
         }
     }
 
