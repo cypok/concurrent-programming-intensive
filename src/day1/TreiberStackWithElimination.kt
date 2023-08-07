@@ -20,21 +20,20 @@ open class TreiberStackWithElimination<E> : Stack<E> {
             return false
         }
 
-        var waitCyclesLeft = ELIMINATION_WAIT_CYCLES
-        while (true) {
+        // I'm not really sure how we are supposed to wait here, so let's just fire some CASes.
+        repeat(ELIMINATION_WAIT_CYCLES) {
             if (eliminationArray.compareAndSet(idx, CELL_STATE_RETRIEVED, CELL_STATE_EMPTY)) {
-                // concurrent pop took the element
                 return true
             }
-            if (waitCyclesLeft == 0) {
-                // we have no more time to wait, try to stop
-                if (eliminationArray.compareAndSet(idx, element, CELL_STATE_EMPTY)) {
-                    return false
-                }
-            } else {
-                waitCyclesLeft--
-            }
         }
+
+        if (eliminationArray.compareAndSet(idx, element, CELL_STATE_EMPTY)) {
+            return false
+        }
+
+        // It's guaranteed that state is equal to RETRIEVED and cannot mutate anymore, so just change it.
+        eliminationArray[idx] = CELL_STATE_EMPTY
+        return true
     }
 
     override fun pop(): E? = tryPopElimination() ?: stack.pop()
