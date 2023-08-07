@@ -8,23 +8,28 @@ import java.util.concurrent.locks.*
 class FineGrainedBank(accountsNumber: Int) : Bank {
     private val accounts: Array<Account> = Array(accountsNumber) { Account() }
 
-    private fun <T> withLocked(accId: Int, action: (Account) -> T): T {
-        val account = accounts[accId]
-        account.lock.lock()
+    private fun <T> withLocked(accIds: List<Int>, action: (List<Account>) -> T): T {
+        val sortedAccIds = accIds.sorted()
+        val sortedAccs = sortedAccIds.map { accounts[it] }
+        sortedAccs.forEach { it.lock.lock() }
         try {
-            return action(account)
+            val accs = List(accIds.size) {
+                // Not so fast here, but ok for our case :)
+                // TODO: save permutation to prevent expensive indexOf
+                sortedAccs[sortedAccIds.indexOf(accIds[it])]
+            }
+            return action(accs)
         } finally {
-            account.lock.unlock()
+            sortedAccs.asReversed().forEach { it.lock.unlock() }
         }
     }
 
+    private fun <T> withLocked(accId: Int, action: (Account) -> T): T {
+        return withLocked(listOf(accId)) { action(it[0]) }
+    }
+
     private fun <T> withLocked(accId1: Int, accId2: Int, action: (Account, Account) -> T): T {
-        val okOrder = accId1 <= accId2
-        return withLocked(if (okOrder) accId1 else accId2) { acc1 ->
-            withLocked(if (okOrder) accId2 else accId1) { acc2 ->
-                action(if (okOrder) acc1 else acc2, if (okOrder) acc2 else acc1)
-            }
-        }
+        return withLocked(listOf(accId1, accId2)) { action(it[0], it[1]) }
     }
 
     override fun getAmount(id: Int): Long {
