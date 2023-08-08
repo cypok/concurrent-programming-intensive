@@ -10,26 +10,39 @@ class FAABasedQueueSimplified<E> : Queue<E> {
     private val deqIdx = AtomicLong(0)
 
     override fun enqueue(element: E) {
-        // TODO: Increment the counter atomically via Fetch-and-Add.
-        // TODO: Use `getAndIncrement()` function for that.
-        val i = enqIdx.get()
-        enqIdx.set(i + 1)
-        // TODO: Atomically install the element into the cell
-        // TODO: if the cell is not poisoned.
-        infiniteArray.set(i.toInt(), element)
+        while (true) {
+            val curEnqIdx = enqIdx.getAndIncrement()
+            val arrIdx = curEnqIdx.toInt()
+            if (infiniteArray.compareAndSet(arrIdx, null, element)) {
+                break
+            }
+        }
     }
 
-    @Suppress("UNCHECKED_CAST")
     override fun dequeue(): E? {
-        // Is this queue empty?
-        if (enqIdx.get() <= deqIdx.get()) return null
-        // TODO: Increment the counter atomically via Fetch-and-Add.
-        // TODO: Use `getAndIncrement()` function for that.
-        val i = deqIdx.get()
-        deqIdx.set(i + 1)
-        // TODO: Try to retrieve an element if the cell contains an
-        // TODO: element, poisoning the cell if it is empty.
-        return infiniteArray.get(i.toInt()) as E
+        while (true) {
+            if (canAssumeEmptiness()) return null
+            val curDeqIdx = deqIdx.getAndIncrement()
+            val arrIdx = curDeqIdx.toInt()
+            if (!infiniteArray.compareAndSet(arrIdx, null, POISONED)) {
+                return infiniteArray.get(arrIdx).let {
+                    infiniteArray.set(arrIdx, null)
+                    @Suppress("UNCHECKED_CAST")
+                    it as E
+                }
+            }
+        }
+    }
+    
+    private fun canAssumeEmptiness(): Boolean {
+        while (true) {
+            val curEnqIdx = enqIdx.get()
+            val curDeqIdx = deqIdx.get()
+            if (curEnqIdx != enqIdx.get()) {
+                continue
+            }
+            return curDeqIdx >= curEnqIdx
+        }
     }
 
     override fun validate() {
@@ -46,5 +59,4 @@ class FAABasedQueueSimplified<E> : Queue<E> {
     }
 }
 
-// TODO: poison cells with this value.
 private val POISONED = Any()
