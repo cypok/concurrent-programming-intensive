@@ -25,6 +25,29 @@ abstract class AbstractQueueWithRemoveTest(
 ) {
     @Operation
     fun remove(@Param(name = "element") element: Int) = queue.remove(element)
+
+    @Test
+    fun testPhysicalRemovalInTheBeginning() {
+        listOf(10, 20, 30, 40, 50).forEach(::enqueue)
+        check(remove(10))
+        validate()
+    }
+
+    @Test
+    fun testPhysicalRemovalInTheMiddle() {
+        listOf(10, 20, 30, 40, 50).forEach(::enqueue)
+        check(remove(30))
+        validate()
+    }
+
+    @Test
+    fun testPhysicalRemovalInTheEnd() {
+        listOf(10, 20, 30, 40, 50).forEach(::enqueue)
+        check(remove(50))
+        validate()
+        enqueue(60)
+        validate()
+    }
 }
 
 @Param(name = "element", gen = IntGen::class, conf = "0:3")
