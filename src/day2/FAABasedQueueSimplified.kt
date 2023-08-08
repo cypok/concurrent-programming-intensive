@@ -24,12 +24,10 @@ class FAABasedQueueSimplified<E> : Queue<E> {
             if (canAssumeEmptiness()) return null
             val curDeqIdx = deqIdx.getAndIncrement()
             val arrIdx = curDeqIdx.toInt()
-            if (!infiniteArray.compareAndSet(arrIdx, null, POISONED)) {
-                return infiniteArray.get(arrIdx).let {
-                    infiniteArray.set(arrIdx, null)
-                    @Suppress("UNCHECKED_CAST")
-                    it as E
-                }
+            val element = infiniteArray.getAndSet(arrIdx, POISONED)
+            if (element != null) {
+                @Suppress("UNCHECKED_CAST")
+                return element as E
             }
         }
     }
