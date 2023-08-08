@@ -13,18 +13,28 @@ class MSQueueWithOnlyLogicalRemove<E> : QueueWithRemove<E> {
     }
 
     override fun enqueue(element: E) {
-        // TODO: Copy your implementation.
-        TODO("Implement me!")
+        while (true) {
+            val curTail = tail.get()
+            val newNode = Node(element)
+            if (curTail.next.compareAndSet(null, newNode)) {
+                tail.compareAndSet(curTail, newNode)
+                return
+            }
+            tail.compareAndSet(curTail, curTail.next.get())
+        }
     }
 
     override fun dequeue(): E? {
-        // TODO: Copy your implementation.
-        // TODO:
-        // TODO: After moving the `head` pointer forward,
-        // TODO: mark the node that contains the extracting
-        // TODO: element as "extracted or removed", restarting
-        // TODO: the operation if this node has already been removed.
-        TODO("Implement me!")
+        while (true) {
+            val curHead = head.get()
+            val newHead = curHead.next.get() ?: return null
+            if (head.compareAndSet(curHead, newHead) && newHead.markExtractedOrRemoved()) {
+                newHead.element.let {
+                    newHead.element = null
+                    return it
+                }
+            }
+        }
     }
 
     override fun remove(element: E): Boolean {
@@ -57,17 +67,10 @@ class MSQueueWithOnlyLogicalRemove<E> : QueueWithRemove<E> {
     ) {
         val next = AtomicReference<Node<E>?>(null)
 
-        /**
-         * TODO: Both [dequeue] and [remove] should mark
-         * TODO: nodes as "extracted or removed".
-         */
-        private val _extractedOrRemoved = AtomicBoolean(false)
-        val extractedOrRemoved
-            get() =
-                _extractedOrRemoved.get()
+        private val extractedOrRemoved = AtomicBoolean(false)
 
         fun markExtractedOrRemoved(): Boolean =
-            _extractedOrRemoved.compareAndSet(false, true)
+            extractedOrRemoved.compareAndSet(false, true)
 
         /**
          * Removes this node from the queue structure.
@@ -76,12 +79,7 @@ class MSQueueWithOnlyLogicalRemove<E> : QueueWithRemove<E> {
          * removed by [remove] or extracted by [dequeue].
          */
         fun remove(): Boolean {
-            // TODO: You need to mark the node as "extracted or removed".
-            // TODO: On success, this node is logically removed, and the
-            // TODO: operation should return `true`.
-            // TODO: Otherwise, the node is already either extracted or removed,
-            // TODO: so the operation should return `false`.
-            TODO("Implement me!")
+            return markExtractedOrRemoved()
         }
     }
 }
