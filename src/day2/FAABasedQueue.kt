@@ -3,23 +3,77 @@ package day2
 import day1.*
 import java.util.concurrent.atomic.*
 
-// TODO: Copy the code from `FAABasedQueueSimplified`
-// TODO: and implement the infinite array on a linked list
-// TODO: of fixed-size `Segment`s.
 class FAABasedQueue<E> : Queue<E> {
-    private val head: AtomicReference<Segment>
-    private val tail: AtomicReference<Segment>
+    private val head = AtomicReference(Segment(0))
+    private val tail = AtomicReference(head.get())
 
     private val enqIdx = AtomicLong(0)
     private val deqIdx = AtomicLong(0)
 
-    override fun enqueue(element: E) {
-        TODO("Implement me!")
+    private fun getSegmentAndCellIdx(start: Segment, idx: Long): Pair<Segment, Int> {
+        val expectedSegId = idx / SEGMENT_SIZE
+        assert(start.id <= expectedSegId)
+
+        var cur = start
+        while (cur.id != expectedSegId) {
+            val next = cur.next.get()
+            if (next != null) {
+                cur = next
+            } else {
+                val newOne = Segment(cur.id + 1)
+                if (cur.next.compareAndSet(null, newOne)) {
+                    cur = newOne
+                }
+            }
+        }
+
+        val cellIdx = (idx % SEGMENT_SIZE).toInt()
+        return Pair(cur, cellIdx)
     }
 
-    @Suppress("UNCHECKED_CAST")
+    private fun movePointer(pointer: AtomicReference<Segment>, newSeg: Segment) {
+        val oldSeg = pointer.get()
+        if (oldSeg.id < newSeg.id) {
+            pointer.compareAndSet(oldSeg, newSeg)
+        }
+    }
+
+    override fun enqueue(element: E) {
+        while (true) {
+            val curTail = tail.get()
+            val curEnqIdx = enqIdx.getAndIncrement()
+            val (seg, cellIdx) = getSegmentAndCellIdx(curTail, curEnqIdx)
+            movePointer(tail, seg)
+            if (seg.cells.compareAndSet(cellIdx, null, element)) {
+                break
+            }
+        }
+    }
+
     override fun dequeue(): E? {
-        TODO("Implement me!")
+        while (true) {
+            if (canAssumeEmptiness()) return null
+            val curHead = head.get()
+            val curDeqIdx = deqIdx.getAndIncrement()
+            val (seg, cellIdx) = getSegmentAndCellIdx(curHead, curDeqIdx)
+            movePointer(head, seg)
+            val element = seg.cells.getAndSet(cellIdx, POISONED)
+            if (element != null) {
+                @Suppress("UNCHECKED_CAST")
+                return element as E
+            }
+        }
+    }
+
+    private fun canAssumeEmptiness(): Boolean {
+        while (true) {
+            val curEnqIdx = enqIdx.get()
+            val curDeqIdx = deqIdx.get()
+            if (curEnqIdx != enqIdx.get()) {
+                continue
+            }
+            return curDeqIdx >= curEnqIdx
+        }
     }
 
     override fun validate() {
@@ -73,3 +127,5 @@ private class Segment(val id: Long) {
 
 // DO NOT CHANGE THIS CONSTANT
 private const val SEGMENT_SIZE = 2
+
+private val POISONED = Any()
