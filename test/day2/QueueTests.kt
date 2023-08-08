@@ -5,6 +5,7 @@ import IntQueueSequential
 import TestBase
 import org.jetbrains.kotlinx.lincheck.annotations.*
 import org.jetbrains.kotlinx.lincheck.paramgen.*
+import org.junit.Test
 
 class FAABasedQueueSimplifiedTest : AbstractQueueTest(FAABasedQueueSimplified())
 class FAABasedQueueTest : AbstractQueueTest(FAABasedQueue())
@@ -46,6 +47,30 @@ class MSQueueWithLinearTimeNonParallelRemoveTest: TestBase(
 
     @Validate
     fun validate() = queue.validate()
+
+    @Test
+    fun testPhysicalRemovalInTheBeginning() {
+        listOf(10, 20, 30, 40, 50).forEach(::enqueue)
+        check(remove(10))
+        validate()
+    }
+
+    @Test
+    fun testPhysicalRemovalInTheMiddle() {
+        listOf(10, 20, 30, 40, 50).forEach(::enqueue)
+        check(remove(30))
+        validate()
+    }
+
+    @Test
+    fun testPhysicalRemovalInTheEnd() {
+        listOf(10, 20, 30, 40, 50).forEach(::enqueue)
+        check(remove(50))
+        validate()
+        enqueue(60)
+        validate()
+    }
+
 }
 
 
