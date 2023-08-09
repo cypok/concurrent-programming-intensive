@@ -24,6 +24,36 @@ class AtomicArrayWithCAS2Test : TestBase(
         index1: Int, expected1: Int, update1: Int,
         index2: Int, expected2: Int, update2: Int
     ) = array.cas2(index1, expected1, update1, index2, expected2, update2)
+
+    override fun Options<*, *>.customConfiguration() {
+        addCustomScenario {
+            parallel {
+                thread {
+                    actor(AtomicArrayWithCAS2Test::cas2, 2, 0, 1, 1, 0, 0)
+                }
+                thread {
+                    actor(AtomicArrayWithCAS2Test::cas2, 2, 1, 0, 1, 0, 0)
+                }
+                thread {
+                    actor(AtomicArrayWithCAS2Test::get, 2)
+                }
+            }
+        }
+        addCustomScenario {
+            parallel {
+                thread {
+                    actor(AtomicArrayWithCAS2Test::cas2, 1, 0, 2, 2, 0, 1)
+                }
+                thread {
+                    actor(AtomicArrayWithCAS2Test::cas2, 2, 1, 0, 1, 2, 1)
+                    actor(AtomicArrayWithCAS2Test::cas2, 2, 0, 0, 1, 1, 0)
+                }
+                thread {
+                    actor(AtomicArrayWithCAS2Test::cas2, 1, 0, 1, 2, 1, 1)
+                }
+            }
+        }
+    }
 }
 
 @Param(name = "index", gen = IntGen::class, conf = "0:${ARRAY_SIZE - 1}")
@@ -53,6 +83,35 @@ class AtomicArrayWithCAS2AndImplementedDCSSTest : TestBase(
                     .methods("dcss")
                     .treatAsAtomic()
             )
+
+            addCustomScenario {
+                parallel {
+                    thread {
+                        actor(AtomicArrayWithCAS2Test::cas2, 2, 0, 1, 1, 0, 0)
+                    }
+                    thread {
+                        actor(AtomicArrayWithCAS2Test::cas2, 2, 1, 0, 1, 0, 0)
+                    }
+                    thread {
+                        actor(AtomicArrayWithCAS2Test::get, 2)
+                    }
+                }
+            }
+
+            addCustomScenario {
+                parallel {
+                    thread {
+                        actor(AtomicArrayWithCAS2Test::cas2, 1, 0, 2, 2, 0, 1)
+                    }
+                    thread {
+                        actor(AtomicArrayWithCAS2Test::cas2, 2, 1, 0, 1, 2, 1)
+                        actor(AtomicArrayWithCAS2Test::cas2, 2, 0, 0, 1, 1, 0)
+                    }
+                    thread {
+                        actor(AtomicArrayWithCAS2Test::cas2, 1, 0, 1, 2, 1, 1)
+                    }
+                }
+            }
         }
     }
 }
