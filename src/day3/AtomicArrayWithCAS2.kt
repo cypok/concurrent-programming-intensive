@@ -42,8 +42,14 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
         return descriptor.status.get() === SUCCESS
     }
 
+    private fun dcss(index1: Int, expected1: E?, update1: Descriptor<E>, reference2: AtomicReference<Status>, expected2: Status): Boolean {
+        val descriptor = DCSSDescriptor(index1, expected1, update1, reference2, expected2)
+        descriptor.apply()
+        return descriptor.status.get() === SUCCESS
+    }
+
     interface Descriptor<E> {
-        fun apply()
+        fun help()
         fun getElementAt(index: Int): E?
     }
 
@@ -64,10 +70,14 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
                 Triple(index2, expected2, update2)
             ).sortedBy { (idx, _, _) -> idx }
 
-        override fun apply() {
+        fun apply() {
             val installed = install()
-            applyLogically(installed)
-            applyPhysically()
+            performLogically(installed)
+            performPhysically()
+        }
+
+        override fun help() {
+            apply()
         }
 
         private fun install(): Boolean {
@@ -89,13 +99,11 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
 
                     is Descriptor<*> ->
                         // let's help somebody else, and try one more time
-                        cur.apply()
+                        cur.help()
 
                     exp -> {
                         // it's expected value, try to install
-                        val descriptor = DCSSDescriptor(idx, exp, this, status, UNDECIDED)
-                        descriptor.apply()
-                        if (descriptor.status.get() === SUCCESS) {
+                        if (dcss(idx, exp, this, status, UNDECIDED)) {
                             return true
                         }
                     }
@@ -107,11 +115,11 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
             }
         }
 
-        private fun applyLogically(installed: Boolean) {
+        private fun performLogically(installed: Boolean) {
             status.compareAndSet(UNDECIDED, if (installed) SUCCESS else FAILED)
         }
 
-        private fun applyPhysically() {
+        private fun performPhysically() {
             val success = when (status.get()) {
                 SUCCESS -> true
                 FAILED -> false
@@ -136,38 +144,40 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
     inner class DCSSDescriptor(
         private val index1: Int,
         private val expected1: E?,
-        private val update1: CAS2Descriptor,
+        private val update1: Descriptor<E>,
         private val reference2: AtomicReference<Status>,
         private val expected2: Status,
     ) : Descriptor<E> {
         var status = AtomicReference(UNDECIDED)
 
-        override fun apply() {
-            val installed = install()
-            applyLogically(installed)
-            applyPhysically()
+        fun apply() {
+            val installed = install1() && install2()
+            perform(installed)
         }
 
-        private fun install(): Boolean {
-            return install1() && install2()
+        override fun help() {
+            // install1 was done for sure
+            val installed = install2()
+            perform(installed)
+        }
+
+        private fun perform(installed: Boolean) {
+            performLogically(installed)
+            performPhysically()
         }
 
         private fun install1(): Boolean {
             while (true) {
-                when (status.get()) {
-                    SUCCESS -> return true
-                    FAILED -> return false
-                    UNDECIDED -> Unit
-                }
+                assert(status.get() == UNDECIDED)
 
                 when (val cur = array.get(index1)) {
                     this ->
-                        // somebody helped us
-                        return true
+                        // nobody could help us before first install
+                        throw IllegalStateException()
 
                     is Descriptor<*> ->
                         // let's help somebody else, and try one more time
-                        cur.apply()
+                        cur.help()
 
                     expected1 ->
                         // it's expected value, try to install
@@ -192,11 +202,11 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
             return reference2.get() == expected2
         }
 
-        private fun applyLogically(installed: Boolean) {
+        private fun performLogically(installed: Boolean) {
             status.compareAndSet(UNDECIDED, if (installed) SUCCESS else FAILED)
         }
 
-        private fun applyPhysically() {
+        private fun performPhysically() {
             val success = when (status.get()) {
                 SUCCESS -> true
                 FAILED -> false
@@ -213,7 +223,6 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
                 else -> throw IllegalStateException()
             }
         }
-
     }
 
     enum class Status {
