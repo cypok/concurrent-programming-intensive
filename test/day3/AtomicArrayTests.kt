@@ -19,6 +19,9 @@ class AtomicArrayWithCAS2Test : TestBase(
     @Operation(params = ["index"])
     fun get(index: Int) = array.get(index)
 
+    @Operation(params = ["index", "value", "value"])
+    fun cas(index: Int, expected: Int, update: Int) = array.cas(index, expected, update)
+
     @Operation(params = ["index", "value", "value", "index", "value", "value"])
     fun cas2(
         index1: Int, expected1: Int, update1: Int,

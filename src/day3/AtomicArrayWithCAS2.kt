@@ -25,8 +25,21 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
     }
 
     fun cas(index: Int, expected: E?, update: E?): Boolean {
-        TODO("the cell can store a descriptor")
-        return array.compareAndSet(index, expected, update)
+        while (true) {
+            when (val cur = array.compareAndExchange(index, expected, update)) {
+                is Descriptor<*> ->
+                    // let's help somebody else, and try one more time
+                    cur.help()
+
+                expected ->
+                    // it's expected value, try to install
+                    return true
+
+                else ->
+                    // it's unexpected value, CAS2 is failed
+                    return false
+            }
+        }
     }
 
     fun cas2(
@@ -101,12 +114,11 @@ class AtomicArrayWithCAS2<E : Any>(size: Int, initialValue: E) {
                         // let's help somebody else, and try one more time
                         cur.help()
 
-                    exp -> {
+                    exp ->
                         // it's expected value, try to install
                         if (dcss(idx, exp, this, status, UNDECIDED)) {
                             return true
                         }
-                    }
 
                     else ->
                         // it's unexpected value, CAS2 is failed
