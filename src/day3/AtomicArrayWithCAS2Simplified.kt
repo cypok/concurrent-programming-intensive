@@ -20,9 +20,10 @@ class AtomicArrayWithCAS2Simplified<E : Any>(size: Int, initialValue: E) {
     fun get(index: Int): E {
         val cell = array[index]
         return when (cell) {
-            is AtomicArrayWithCAS2Simplified<*>.CAS2Descriptor -> cell.getElementAt(index)
-            else -> cell
-        } as E
+            is AtomicArrayWithCAS2Simplified<*>.CAS2Descriptor ->
+                (cell as AtomicArrayWithCAS2Simplified<E>.CAS2Descriptor).getElementAt(index)
+            else -> cell as E
+        }
     }
 
     fun cas2(
@@ -56,50 +57,62 @@ class AtomicArrayWithCAS2Simplified<E : Any>(size: Int, initialValue: E) {
             ).sortedBy { (idx, _, _) -> idx }
 
         fun apply() {
-            install()
-            val success = applyLogically()
-            applyPhysically(success)
+            val installed = install()
+            applyLogically(installed)
+            applyPhysically()
         }
 
-        private fun install() {
-            outer@ for ((idx, exp, _) in worklist) {
-                inner@ while (true) {
-                    if (status.get() != UNDECIDED) {
-                        break@outer
-                    }
+        private fun install(): Boolean {
+            return worklist.all { (idx, exp, _) -> installOne(idx, exp) }
+        }
 
-                    val cur = array.compareAndExchange(idx, exp, this)
-                    if (cur === exp) {
-                        // it's expected value, CAS2 continues
-                        continue@outer
-                    } else if (cur === this) {
+        private fun installOne(idx: Int, exp: E): Boolean {
+            while (true) {
+                when (status.get()) {
+                    SUCCESS -> return true
+                    FAILED -> return false
+                    UNDECIDED -> Unit
+                }
+
+                when (val cur = array.get(idx)) {
+                    this ->
                         // somebody helped us
-                        continue@outer
-                    } else if (cur is AtomicArrayWithCAS2Simplified<*>.CAS2Descriptor) {
+                        return true
+
+                    is AtomicArrayWithCAS2Simplified<*>.CAS2Descriptor ->
                         // let's help somebody else
                         cur.apply()
-                        continue@inner
-                    } else {
+                        // and try one more time
+
+                    exp ->
+                        // it's expected value, try to install
+                        if (array.compareAndSet(idx, exp, this)) {
+                            return true
+                        }
+
+                    else ->
                         // it's unexpected value, CAS2 is failed
-                        status.compareAndSet(UNDECIDED, FAILED)
-                        break@outer
-                    }
+                        return false
                 }
             }
         }
 
-        private fun applyLogically(): Boolean {
-            val curStatus = status.compareAndExchange(UNDECIDED, SUCCESS)
-            return curStatus == UNDECIDED || curStatus == SUCCESS
+        private fun applyLogically(installed: Boolean) {
+            status.compareAndSet(UNDECIDED, if (installed) SUCCESS else FAILED)
         }
 
-        private fun applyPhysically(success: Boolean) {
+        private fun applyPhysically() {
+            val success = when (status.get()) {
+                SUCCESS -> true
+                FAILED -> false
+                UNDECIDED -> throw IllegalStateException()
+            }
             for ((idx, exp, upd) in worklist) {
                 array.compareAndSet(idx, this, if (success) upd else exp)
             }
         }
 
-        fun getElementAt(index: Int): Any {
+        fun getElementAt(index: Int): E {
             val (_, exp, upd) = worklist.find { it.first == index }!!
             return when (status.get()) {
                 UNDECIDED, FAILED -> exp
