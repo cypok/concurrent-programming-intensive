@@ -16,9 +16,13 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
         }
     }
 
-    fun get(index: Int): E {
-        // TODO: Copy the implementation from `AtomicArrayWithCAS2Simplified`
-        TODO("Implement me")
+    fun get(index: Int): E? {
+        val cell = array[index]
+        return when (cell) {
+            is AtomicArrayWithCAS2AndImplementedDCSS<*>.CAS2Descriptor ->
+                (cell as AtomicArrayWithCAS2AndImplementedDCSS<E>.CAS2Descriptor).getElementAt(index)
+            else -> cell as E?
+        }
     }
 
     fun cas2(
@@ -26,17 +30,10 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
         index2: Int, expected2: E, update2: E
     ): Boolean {
         require(index1 != index2) { "The indices should be different" }
-        val descriptor = if (index1 < index2) {
-            CAS2Descriptor(
+        val descriptor = CAS2Descriptor(
                 index1 = index1, expected1 = expected1, update1 = update1,
                 index2 = index2, expected2 = expected2, update2 = update2
             )
-        } else {
-            CAS2Descriptor(
-                index1 = index2, expected1 = expected2, update1 = update2,
-                index2 = index1, expected2 = expected1, update2 = update1
-            )
-        }
         descriptor.apply()
         return descriptor.status.get() === SUCCESS
     }
@@ -51,9 +48,74 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
     ) {
         val status = AtomicReference(UNDECIDED)
 
+        private val worklist
+            get() = listOf(
+                Triple(index1, expected1, update1),
+                Triple(index2, expected2, update2)
+            ).sortedBy { (idx, _, _) -> idx }
+
         fun apply() {
-            // TODO: Copy the implementation from `AtomicArrayWithCAS2Simplified`
-            // TODO: and use `dcss(..)` to install the descriptor.
+            val installed = install()
+            applyLogically(installed)
+            applyPhysically()
+        }
+
+        private fun install(): Boolean {
+            return worklist.all { (idx, exp, _) -> installOne(idx, exp) }
+        }
+
+        private fun installOne(idx: Int, exp: E?): Boolean {
+            while (true) {
+                when (status.get()) {
+                    SUCCESS -> return true
+                    FAILED -> return false
+                    UNDECIDED -> Unit
+                }
+
+                when (val cur = array.get(idx)) {
+                    this ->
+                        // somebody helped us
+                        return true
+
+                    is AtomicArrayWithCAS2AndImplementedDCSS<*>.CAS2Descriptor ->
+                        // let's help somebody else, and try one more time
+                        cur.apply()
+
+                    exp ->
+                        // it's expected value, try to install
+                        if (dcss(idx, exp, this, status, UNDECIDED)) {
+                            return true
+                        }
+
+                    else ->
+                        // it's unexpected value, CAS2 is failed
+                        return false
+                }
+            }
+        }
+
+        private fun applyLogically(installed: Boolean) {
+            status.compareAndSet(UNDECIDED, if (installed) SUCCESS else FAILED)
+        }
+
+        private fun applyPhysically() {
+            val success = when (status.get()) {
+                SUCCESS -> true
+                FAILED -> false
+                UNDECIDED -> throw IllegalStateException()
+            }
+            for ((idx, exp, upd) in worklist) {
+                array.compareAndSet(idx, this, if (success) upd else exp)
+            }
+        }
+
+        fun getElementAt(index: Int): E? {
+            val (_, exp, upd) = worklist.find { it.first == index }!!
+            return when (status.get()) {
+                UNDECIDED, FAILED -> exp
+                SUCCESS -> upd
+                else -> throw IllegalStateException()
+            }
         }
     }
 
