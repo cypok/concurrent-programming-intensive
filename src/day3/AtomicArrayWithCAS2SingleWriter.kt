@@ -17,8 +17,11 @@ class AtomicArrayWithCAS2SingleWriter<E : Any>(size: Int, initialValue: E) {
     }
 
     fun get(index: Int): E {
-        // TODO: the cell can store CAS2Descriptor
-        return array[index] as E
+        val cell = array[index]
+        return when (cell) {
+            is AtomicArrayWithCAS2SingleWriter<*>.CAS2Descriptor -> cell.getElementAt(index)
+            else -> cell
+        } as E
     }
 
     fun cas2(
@@ -40,11 +43,39 @@ class AtomicArrayWithCAS2SingleWriter<E : Any>(size: Int, initialValue: E) {
     ) {
         val status = AtomicReference(UNDECIDED)
 
+        private val worklist
+            get() = listOf(
+                Triple(index1, expected1, update1),
+                Triple(index2, expected2, update2)
+            )
+
         fun apply() {
-            // TODO: Install the descriptor, update the status, and update the cells;
-            // TODO: create functions for each of these three phases.
-            // TODO: In this task, only one thread can call cas2(..),
-            // TODO: so cas2(..) calls cannot be executed concurrently.
+            val success = install()
+            applyLogically(success)
+            applyPhysically(success)
+        }
+
+        private fun install(): Boolean {
+            return worklist.all { (idx, exp, _) -> array.compareAndSet(idx, exp, this) }
+        }
+
+        private fun applyLogically(success: Boolean) {
+            status.compareAndSet(UNDECIDED, if (success) SUCCESS else FAILED)
+        }
+
+        private fun applyPhysically(success: Boolean) {
+            for ((idx, exp, upd) in worklist) {
+                array.compareAndSet(idx, this, if (success) upd else exp)
+            }
+        }
+
+        fun getElementAt(index: Int): Any {
+            val (_, exp, upd) = worklist.find { it.first == index }!!
+            return when (status.get()) {
+                UNDECIDED, FAILED -> exp
+                SUCCESS -> upd
+                else -> throw IllegalStateException()
+            }
         }
     }
 

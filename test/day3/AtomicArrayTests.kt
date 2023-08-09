@@ -4,6 +4,8 @@ import TestBase
 import org.jetbrains.kotlinx.lincheck.*
 import org.jetbrains.kotlinx.lincheck.annotations.*
 import org.jetbrains.kotlinx.lincheck.paramgen.*
+import org.junit.Test
+import kotlin.test.assertEquals
 
 @Param(name = "index", gen = IntGen::class, conf = "0:${ARRAY_SIZE - 1}")
 @Param(name = "value", gen = IntGen::class, conf = "0:2")
@@ -44,6 +46,22 @@ class AtomicArrayWithCAS2SingleWriterTest : TestBase(
         index1: Int, expected1: Int, update1: Int,
         index2: Int, expected2: Int, update2: Int
     ) = array.cas2(index1, expected1, update1, index2, expected2, update2)
+
+    @Test
+    fun checkUnapply() {
+        assertEquals(false,
+            array.cas2(
+                0, 0, 10,
+                1, 9, 20))
+        assertEquals(0, array.get(0))
+        assertEquals(0, array.get(1))
+        assertEquals(true,
+            array.cas2(
+                0, 0, 10,
+                1, 0, 20))
+        assertEquals(10, array.get(0))
+        assertEquals(20, array.get(1))
+    }
 }
 
 class AtomicArrayWithCAS2SimplifiedTest : TestBase(
