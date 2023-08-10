@@ -10,33 +10,71 @@ class FlatCombiningQueue<E> : Queue<E> {
     private val tasksForCombiner = AtomicReferenceArray<Any?>(TASKS_FOR_COMBINER_SIZE)
 
     override fun enqueue(element: E) {
-        // TODO: Make this code thread-safe using the flat-combining technique.
-        // TODO: 1.  Try to become a combiner by
-        // TODO:     changing `combinerLock` from `false` (unlocked) to `true` (locked).
-        // TODO: 2a. On success, apply this operation and help others by traversing
-        // TODO:     `tasksForCombiner`, performing the announced operations, and
-        // TODO:      updating the corresponding cells to `Result`.
-        // TODO: 2b. If the lock is already acquired, announce this operation in
-        // TODO:     `tasksForCombiner` by replacing a random cell state from
-        // TODO:      `null` with the element. Wait until either the cell state
-        // TODO:      updates to `Result` (do not forget to clean it in this case),
-        // TODO:      or `combinerLock` becomes available to acquire.
-        queue.addLast(element)
+        performOperation<Unit> { Enqueue(element) }
     }
 
     override fun dequeue(): E? {
-        // TODO: Make this code thread-safe using the flat-combining technique.
-        // TODO: 1.  Try to become a combiner by
-        // TODO:     changing `combinerLock` from `false` (unlocked) to `true` (locked).
-        // TODO: 2a. On success, apply this operation and help others by traversing
-        // TODO:     `tasksForCombiner`, performing the announced operations, and
-        // TODO:      updating the corresponding cells to `Result`.
-        // TODO: 2b. If the lock is already acquired, announce this operation in
-        // TODO:     `tasksForCombiner` by replacing a random cell state from
-        // TODO:      `null` with `Dequeue`. Wait until either the cell state
-        // TODO:      updates to `Result` (do not forget to clean it in this case),
-        // TODO:      or `combinerLock` becomes available to acquire.
-        return queue.removeFirstOrNull()
+        return performOperation<E> { Dequeue }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <V> performOperation(createTask: () -> Any): V {
+        var taskWasInstalledAt = -1
+
+        while (true) {
+            if (combinerLock.compareAndSet(false, true)) {
+                // We are the Combiner.
+                try {
+                    // Do our own stuff unless it was installed.
+                    var theResult = if (taskWasInstalledAt == -1) doOperation(createTask()) else null
+
+                    // Help others.
+                    for (i in 0 until tasksForCombiner.length()) {
+                        val task = tasksForCombiner.get(i) ?: continue
+
+                        if (i == taskWasInstalledAt) {
+                            // Our task was here, extract it.
+                            theResult = if (task is Result<*>) task.value as V else doOperation(task)
+                            tasksForCombiner.set(i, null)
+
+                        } else if (task !is Result<*>) {
+                            // Perform another operation and save the result.
+                            assert(tasksForCombiner.get(i) === task)
+                            tasksForCombiner.set(i, Result(doOperation(task)))
+                        }
+                    }
+
+                    return theResult as V
+
+                } finally {
+                    combinerLock.set(false)
+                }
+
+            } else if (taskWasInstalledAt == -1) {
+                // No luck with the lock, we need help from the Combiner.
+                val taskIdx = randomCellIndex()
+                if (tasksForCombiner.compareAndSet(taskIdx, null, createTask())) {
+                    taskWasInstalledAt = taskIdx
+                }
+
+            } else {
+                // Check if somebody helped with our installed task.
+                val task = tasksForCombiner.get(taskWasInstalledAt)
+                if (task is Result<*>) {
+                    tasksForCombiner.set(taskWasInstalledAt, null)
+                    return task.value as V
+                }
+            }
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun doOperation(task: Any): Any? {
+        return when (task) {
+            Dequeue -> queue.removeFirstOrNull()
+            is Enqueue<*> -> queue.addLast(task.value as E)
+            else -> throw IllegalStateException()
+        }
     }
 
     private fun randomCellIndex(): Int =
@@ -45,11 +83,12 @@ class FlatCombiningQueue<E> : Queue<E> {
 
 private const val TASKS_FOR_COMBINER_SIZE = 3 // Do not change this constant!
 
-// TODO: Put this token in `tasksForCombiner` for dequeue().
-// TODO: enqueue()-s should put the inserting element.
 private object Dequeue
 
-// TODO: Put the result wrapped with `Result` when the operation in `tasksForCombiner` is processed.
+private class Enqueue<E>(
+    val value: E
+)
+
 private class Result<V>(
     val value: V
 )
