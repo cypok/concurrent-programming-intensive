@@ -1,6 +1,7 @@
 package day4
 
 import java.util.concurrent.atomic.*
+import kotlin.math.absoluteValue
 
 class ConcurrentHashTableWithoutResize<K : Any, V : Any>(initialCapacity: Int) : HashTable<K, V> {
     private val table = AtomicReference(Table<K, V>(initialCapacity))
@@ -40,21 +41,96 @@ class ConcurrentHashTableWithoutResize<K : Any, V : Any>(initialCapacity: Int) :
         val values = AtomicReferenceArray<V?>(capacity)
 
         fun put(key: K, value: V): Any? {
-            // TODO: Copy your implementation from `SingleWriterHashTable`
-            // TODO: and replace all writes to update key/value with CAS-s.
-            TODO("Implement me!")
+            // Search for a specified key probing `MAX_PROBES` cells.
+            // If neither the key nor an empty cell is found,
+            // inform the caller that the table should be resized.
+            iterateCells(key) { index ->
+                // Read the key.
+                while (true) {
+                    val curKey = keys[index]
+                    when (curKey) {
+                        // The cell contains the specified key.
+                        key -> {
+                            // Update the value and return the previous one.
+                            return values.getAndSet(index, value)
+                        }
+                        // The cell does not store a key.
+                        null -> {
+                            // Insert the key/value pair into this cell.
+                            if (keys.compareAndSet(index, null, key)) {
+                                return values.getAndSet(index, value)
+                            }
+                        }
+                        // The cell contains different key.
+                        else -> break
+                    }
+                }
+            }
+            // Inform the caller that the table should be resized.
+            return NEEDS_REHASH
         }
 
         fun get(key: K): V? {
-            // TODO: Copy your implementation from `SingleWriterHashTable`.
-            TODO("Implement me!")
+            // Search for a specified key probing `MAX_PROBES` cells.
+            // If neither the key is not found after that,
+            // the table does not contain it.
+            iterateCells(key) { index ->
+                // Read the key.
+                val curKey = keys[index]
+                when (curKey) {
+                    // The cell contains the required key.
+                    key -> {
+                        // Read the value associated with the key.
+                        return values[index]
+                    }
+                    // Empty cell.
+                    null -> {
+                        // The key has not been found.
+                        return null
+                    }
+                    // Skip different keys.
+                }
+            }
+            // The key has not been found.
+            return null
         }
 
         fun remove(key: K): V? {
-            // TODO: Copy your implementation from `SingleWriterHashTable`
-            // TODO: and replace the write to update the value with CAS.
-            TODO("Implement me!")
+            // Search for a specified key probing `MAX_PROBES` cells.
+            // If neither the key is not found after that,
+            // the table does not contain it.
+            iterateCells(key) { index ->
+                // Read the key.
+                val curKey = keys[index]
+                when (curKey) {
+                    // The cell contains the required key.
+                    key -> {
+                        // Read the value associated with the key and replace it with `null`.
+                        // Leave key non-null: yes, we grab this cell forever, but it simplifies concurrent algorithm.
+                        return values.getAndSet(index, null)
+                    }
+                    // Empty cell.
+                    null -> {
+                        // The key has not been found.
+                        return null
+                    }
+                    // Skip different keys.
+                }
+            }
+            // The key has not been found.
+            return null
         }
+
+        private inline fun iterateCells(key: K, process: (Int) -> Unit) {
+            var index = index(key)
+            repeat(MAX_PROBES) {
+                process(index)
+                // Process the next cell, use linear probing.
+                index = (index + 1) % capacity
+            }
+        }
+
+        private fun index(key: Any) = ((key.hashCode() * MAGIC) % capacity).absoluteValue
     }
 }
 
