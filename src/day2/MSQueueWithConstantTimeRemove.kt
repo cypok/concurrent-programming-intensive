@@ -33,8 +33,8 @@ class MSQueueWithConstantTimeRemove<E> : QueueWithRemove<E> {
         while (true) {
             val curHead = head.get()
             val newHead = curHead.next.get() ?: return null
+            newHead.prev.set(null)
             if (head.compareAndSet(curHead, newHead) && newHead.markExtractedOrRemoved()) {
-                newHead.prev.set(null)
                 newHead.element.let {
                     newHead.element = null
                     return it
@@ -120,15 +120,25 @@ class MSQueueWithConstantTimeRemove<E> : QueueWithRemove<E> {
 
         fun removePhysically() {
             assert(extractedOrRemoved)
-            val prev = this.prev.get()
-            val next = this.next.get()
-            if (prev != null && next != null) {
-                // prevent tail removal, it would be done by enqueue
-                prev.next.set(next)
-                next.prev.set(prev)
-                if (next.extractedOrRemoved) {
-                    next.removePhysically()
-                }
+            // prevent head & tail removal, it would be done by enqueue
+            val curNext = this.next.get() ?: return
+            // this node is not tail and cannot become the tail, order of reads is important!
+            val curPrev = this.prev.get() ?: return
+            curPrev.next.set(curNext)
+            curNext.prev.setIfNotNull(curPrev)
+            if (curPrev.extractedOrRemoved) {
+                curPrev.removePhysically()
+            }
+            if (curNext.extractedOrRemoved) {
+                curNext.removePhysically()
+            }
+        }
+
+        fun <T> AtomicReference<T>.setIfNotNull(value: T) {
+            while (true) {
+                val cur = get()
+                if (cur == null) break
+                if (compareAndSet(cur, value)) return
             }
         }
     }
